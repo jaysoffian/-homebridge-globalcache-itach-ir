@@ -10,7 +10,7 @@ This [Homebridge](https://github.com/nfarina/homebridge) plugin supports sending
 
 ## Documentation
 
-This plugin is based on the [Homebridge Broadlink RM Pro](https://github.com/kiwi-cam/homebridge-broadlink-rm) plugin so start with [its documentation](https://broadlink.kiwicam.nz).
+This plugin is based off of the [Homebridge Broadlink RM Pro](https://github.com/kiwi-cam/homebridge-broadlink-rm) plugin so start with [its documentation](https://broadlink.kiwicam.nz).
 
 Important differences:
 
@@ -73,4 +73,4 @@ Important differences:
 
 ## Credits
 
-This plugin is based on <https://github.com/kiwi-cam/homebridge-broadlink-rm>. I removed most of its accessory types and adapted the remaining code to work with the Global Caché iTach protocol.
+This plugin is based off of <https://github.com/kiwi-cam/homebridge-broadlink-rm>. I removed most of its accessory types and adapted the remaining code to work with the Global Caché iTach protocol.
