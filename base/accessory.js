@@ -1,0 +1,348 @@
+const persistentState = require("../helpers/persistentState");
+
+const addSaveProxy = (name, target, saveFunc) => {
+  const handler = {
+    set(target, key, value) {
+      target[key] = value;
+
+      saveFunc(target);
+
+      return true;
+    },
+  };
+
+  return new Proxy(target, handler);
+};
+
+class HomebridgeAccessory {
+  constructor(log, config = {}) {
+    let {
+      disableLogs,
+      host,
+      name,
+      data,
+      persistState,
+      resendDataAfterReload,
+      resendDataAfterReloadDelay,
+    } = config;
+
+    this.log = !disableLogs && log ? log : () => {};
+    if (this.logLevel === undefined) {
+      this.logLevel = 2;
+    } //Default to info
+    this.config = config;
+
+    this.host = host;
+    this.name = name;
+    this.data = data;
+
+    this.state = {};
+
+    this.checkConfig(config);
+    this.setupServiceManager();
+    this.loadState();
+
+    this.setDefaults();
+  }
+
+  setDefaults() {
+    if (this.config.allowResend === undefined) {
+      if (this.config.preventResendHex === undefined) {
+        this.config.allowResend = true;
+      } else {
+        this.config.allowResend = !this.config.preventResendHex;
+      }
+    }
+  }
+
+  restoreStateOrder() {}
+
+  correctReloadedState() {}
+
+  checkConfig(config) {
+    const { name, log, logLevel } = this;
+    if (typeof config !== "object") {
+      return;
+    }
+
+    Object.keys(config).forEach((key) => {
+      const value = config[key];
+
+      if (value === "true" || value === "false") {
+        log(
+          `\x1b[31m[CONFIG ERROR]\x1b[0m ${name}Boolean values should look like this: \x1b[32m"${key}": ${value}\x1b[0m not this \x1b[31m"${key}": "${value}"\x1b[0m`
+        );
+
+        process.exit(0);
+      } else if (Array.isArray(value)) {
+        value.forEach((item) => {
+          this.checkConfig(item);
+        });
+      } else if (typeof value === "object") {
+        this.checkConfig(value);
+      } else if (
+        value === "0" ||
+        (typeof value === "string" &&
+          parseInt(value) !== 0 &&
+          !isNaN(parseInt(value)))
+      ) {
+        if (typeof value === "string" && value.split(".").length - 1 > 1) {
+          return;
+        }
+        if (typeof value === "string" && !value.match(/^\d\.{0,1}\d*$/)) {
+          return;
+        }
+
+        log(
+          `\x1b[31m[CONFIG ERROR]\x1b[0m ${name}Numeric values should look like this: \x1b[32m"${key}": ${value}\x1b[0m not this \x1b[31m"${key}": "${value}"\x1b[0m`
+        );
+
+        process.exit(0);
+      }
+    });
+  }
+
+  identify(callback) {
+    const { name, log, logLevel } = this;
+
+    if (logLevel <= 1) {
+      log(`Identify requested for ${name}`);
+    }
+
+    callback();
+  }
+
+  performSetValueAction({ host, data, log, name }) {
+    throw new Error('The "performSetValueAction" method must be overridden.');
+  }
+
+  async setCharacteristicValue(props, value, callback) {
+    const { config, host, log, name, logLevel } = this;
+
+    try {
+      const { delay, resendDataAfterReload, allowResend } = config;
+      const {
+        service,
+        propertyName,
+        onData,
+        offData,
+        setValuePromise,
+        ignorePreviousValue,
+      } = props;
+
+      const capitalizedPropertyName =
+        propertyName.charAt(0).toUpperCase() + propertyName.slice(1);
+
+      if (delay) {
+        if (this.logLevel <= 3) {
+          log(
+            `${name} set${capitalizedPropertyName}: ${value} (delaying by ${delay}s)`
+          );
+        }
+
+        await delayForDuration(delay);
+      }
+
+      if (this.logLevel <= 2) {
+        log(`${name} set${capitalizedPropertyName}: ${value}`);
+      }
+
+      if (this.isReloadingState && !resendDataAfterReload) {
+        this.state[propertyName] = value;
+
+        if (this.logLevel <= 3) {
+          log(
+            `${name} set${capitalizedPropertyName}: already ${value} (no data sent - A)`
+          );
+        }
+
+        callback(null);
+        return;
+      }
+
+      if (
+        !ignorePreviousValue &&
+        this.state[propertyName] == value &&
+        !this.isReloadingState
+      ) {
+        if (!allowResend) {
+          if (this.logLevel <= 3) {
+            log(
+              `${name} set${capitalizedPropertyName}: already ${value} (no data sent - B)`
+            );
+          }
+
+          callback(null);
+          return;
+        }
+      }
+
+      let previousValue = this.state[propertyName];
+      if (this.isReloadingState && resendDataAfterReload) {
+        previousValue = undefined;
+      }
+
+      this.state[propertyName] = value;
+
+      // Set toggle data if this is a toggle
+      const data = value ? onData : offData;
+
+      if (setValuePromise) {
+        setValuePromise(data, previousValue);
+      } else if (data) {
+        this.performSetValueAction({ host, data, log, name });
+      }
+      callback(null);
+    } catch (err) {
+      if (this.logLevel <= 4) {
+        log("setCharacteristicValue error:", err.message);
+      }
+      callback(err);
+    }
+  }
+
+  async getCharacteristicValue(props, callback) {
+    const { propertyName } = props;
+    const { log, name, logLevel } = this;
+    let value;
+
+    const capitalizedPropertyName =
+      propertyName.charAt(0).toUpperCase() + propertyName.slice(1);
+
+    if (this.state[propertyName] === undefined) {
+      let thisCharacteristic =
+        this.serviceManager.getCharacteristicTypeForName(propertyName);
+      if (
+        this.serviceManager.getCharacteristic(thisCharacteristic).props
+          .format != "bool" &&
+        this.serviceManager.getCharacteristic(thisCharacteristic).props.minValue
+      ) {
+        value =
+          this.serviceManager.getCharacteristic(thisCharacteristic).props
+            .minValue;
+      } else {
+        value = 0;
+      }
+    } else {
+      value = this.state[propertyName];
+    }
+
+    if (this.logLevel <= 1) {
+      log(`${name} get${capitalizedPropertyName}: ${value}`);
+    }
+    callback(null, value);
+  }
+
+  loadState() {
+    const { config, log, logLevel, name, serviceManager } = this;
+    let {
+      host,
+      resendDataAfterReload,
+      resendDataAfterReloadDelay,
+      persistState,
+    } = config;
+
+    // Set defaults
+    if (persistState === undefined) {
+      persistState = true;
+    }
+    if (!resendDataAfterReloadDelay) {
+      resendDataAfterReloadDelay = 2;
+    }
+
+    if (!persistState) {
+      return;
+    }
+
+    // Load state from file
+    const restoreStateOrder = this.restoreStateOrder();
+    const state = persistentState.load({ host, name }) || {};
+
+    // Allow each accessory to correct the state if necessary
+    this.correctReloadedState(state);
+
+    // Proxy so that whenever this.state is changed, it will persist to disk
+    this.state = addSaveProxy(name, state, (state) => {
+      persistentState.save({ host, name, state });
+    });
+
+    // Refresh the UI and resend data based on existing state
+    Object.keys(serviceManager.characteristics).forEach((name) => {
+      if (this.state[name] === undefined) {
+        return;
+      }
+
+      const characteristcType = serviceManager.characteristics[name];
+
+      // Refresh the UI for any state that's been set once the init has completed
+      // Use timeout as we want to make sure this doesn't happen until after all child contructor code has run
+      setTimeout(() => {
+        if (persistState) {
+          serviceManager.refreshCharacteristicUI(characteristcType);
+        }
+      }, 200);
+
+      // Re-set the value in order to resend
+      if (resendDataAfterReload) {
+        setTimeout(() => {
+          const value = this.state[name];
+
+          serviceManager.setCharacteristic(characteristcType, value);
+        }, resendDataAfterReloadDelay * 1000);
+      }
+    });
+
+    if (resendDataAfterReload) {
+      this.isReloadingState = true;
+
+      setTimeout(() => {
+        this.isReloadingState = false;
+
+        if (this.logLevel <= 2) {
+          log(`${name} Accessory Ready`);
+        }
+      }, resendDataAfterReloadDelay * 1000 + 300);
+    } else {
+      if (this.logLevel <= 2) {
+        log(`${name} Accessory Ready`);
+      }
+    }
+  }
+
+  getInformationServices() {
+    const informationService = new Service.AccessoryInformation();
+    informationService
+      .setCharacteristic(
+        Characteristic.Manufacturer,
+        this.manufacturer || "Homebridge Easy Platform"
+      )
+      .setCharacteristic(Characteristic.Model, this.model || "Unknown")
+      .setCharacteristic(
+        Characteristic.SerialNumber,
+        this.serialNumber || "Unknown"
+      );
+
+    return [informationService];
+  }
+
+  getServices() {
+    const services = this.getInformationServices();
+
+    services.push(this.serviceManager.service);
+
+    if (this.historyService && this.config.noHistory !== true) {
+      //Note that noHistory is not working as intended. Need to pull from platform config
+      services.push(this.historyService);
+    }
+
+    return services;
+  }
+}
+
+module.exports = HomebridgeAccessory;
+
+const delayForDuration = (duration) => {
+  return new Promise((resolve) => {
+    setTimeout(resolve, duration * 1000);
+  });
+};

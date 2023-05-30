@@ -1,0 +1,56 @@
+{
+  "name": "homebridge-globalcache-itach-ir",
+  "displayName": "Homebridge Global Caché iTach IR",
+  "version": "1.0.0",
+  "description": "Homebridge plugin for Global Caché iTach IR product family",
+  "license": "ISC",
+  "scripts": {
+    "lint": "prettier -w *.js && eslint --fix *.js"
+  },
+  "files": [
+      "accessories/accessory.js",
+      "accessories/index.js",
+      "accessories/light.js",
+      "accessories/outlet.js",
+      "accessories/switch.js",
+      "base/accessory.js",
+      "base/index.js",
+      "base/platform.js",
+      "helpers/accessoryCreator.js",
+      "helpers/catchDelayCancelError.js",
+      "helpers/delayForDuration.js",
+      "helpers/errors.js",
+      "helpers/getDevice.js",
+      "helpers/persistentState.js",
+      "helpers/sendData.js",
+      "helpers/serviceManager.js",
+      "index.js",
+      "platform.js"
+  ],
+  "keywords": [
+    "homebridge-plugin",
+    "globalcache",
+    "itach"
+  ],
+  "engines": {
+    "node": ">=7.6.0",
+    "homebridge": ">=1.4.1"
+  },
+  "author": {
+    "name": "jaysoffian"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:jaysoffian/homebridge-globalcache-itach-ir.git"
+  },
+  "dependencies": {
+    "await-semaphore": "^0.1.3",
+    "node-persist": ">=2.1.0 <3.0.0",
+    "promise-socket": "^7.0.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.40.0",
+    "prettier": "^2.7.1"
+  }
+}
