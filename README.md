@@ -71,6 +71,6 @@ Important differences:
 }
 ```
 
-## Thanks
+## Credits
 
 This plugin is based on <https://github.com/kiwi-cam/homebridge-broadlink-rm>. I removed most of its accessory types and adapted the remaining code to work with the Global Caché iTach protocol.
